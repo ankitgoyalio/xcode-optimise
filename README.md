@@ -174,4 +174,4 @@ uv run mypy main.py
 
 ## License
 
-Add your chosen license here (for example, MIT, Apache‑2.0, etc.).
+This repository is licensed under the [MIT License](LICENSE).
