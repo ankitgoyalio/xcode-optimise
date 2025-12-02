@@ -3,11 +3,7 @@ import os
 import re
 import sys
 from pathlib import Path
-
-try:
-    from babel import Locale
-except ImportError:
-    Locale = None
+from babel import Locale
 
 
 def is_xcode_project(directory_path: str) -> bool:
@@ -30,14 +26,13 @@ def is_xcode_project(directory_path: str) -> bool:
 
     # Check immediate directory first
     for item in path.iterdir():
-        if item.is_dir():
-            if item.suffix == '.xcodeproj' or item.suffix == '.xcworkspace':
-                return True
+        if item.is_dir() and item.suffix in ['.xcodeproj', '.xcworkspace']:
+            return True
 
     # If not found, search recursively
-    for root, dirs, files in os.walk(directory_path):
+    for _root, dirs, _files in os.walk(directory_path):
         for dir_name in dirs:
-            if dir_name.endswith('.xcodeproj') or dir_name.endswith('.xcworkspace'):
+            if dir_name.endswith(('.xcodeproj', '.xcworkspace')):
                 return True
 
     return False
@@ -67,7 +62,7 @@ def find_xcode_project_path(directory_path: str) -> Path | None:
             return item
 
     # If not found, search recursively
-    for root, dirs, files in os.walk(directory_path):
+    for root, dirs, _files in os.walk(directory_path):
         for dir_name in dirs:
             if dir_name.endswith('.xcodeproj'):
                 return Path(root) / dir_name
@@ -75,7 +70,7 @@ def find_xcode_project_path(directory_path: str) -> Path | None:
     return None
 
 
-def list_localization_languages(project_path: Path) -> list[tuple[str, str]]:
+def list_localization_languages(project_path: Path) -> list[tuple[str | None, str]]:
     """
     Extract all localization languages from an Xcode project's project.pbxproj file.
 
@@ -88,7 +83,7 @@ def list_localization_languages(project_path: Path) -> list[tuple[str, str]]:
 
     Raises:
         FileNotFoundError: If project.pbxproj file is not found
-        IOError: If project.pbxproj file cannot be read
+        OSError: If project.pbxproj file cannot be read
     """
     pbxproj_path = project_path / 'project.pbxproj'
 
@@ -96,10 +91,10 @@ def list_localization_languages(project_path: Path) -> list[tuple[str, str]]:
         raise FileNotFoundError(f"project.pbxproj not found in {project_path}")
 
     try:
-        with open(pbxproj_path, 'r', encoding='utf-8') as f:
+        with open(pbxproj_path, encoding='utf-8') as f:
             content = f.read()
-    except IOError as e:
-        raise IOError(f"Failed to read project.pbxproj: {e}")
+    except OSError as e:
+        raise OSError(f"Failed to read project.pbxproj: {e}") from e
 
     pattern = r'knownRegions\s*=\s*\((.*?)\);'
     match = re.search(pattern, content, re.DOTALL)
@@ -108,7 +103,7 @@ def list_localization_languages(project_path: Path) -> list[tuple[str, str]]:
         return []
 
     regions_content = match.group(1)
-    language_codes = []
+    language_codes: list[str] = []
     for line in regions_content.split('\n'):
         line = line.strip().rstrip(',')
         if line and not line.startswith('//'):
@@ -119,30 +114,23 @@ def list_localization_languages(project_path: Path) -> list[tuple[str, str]]:
     languages = []
     for code in language_codes:
         language_name = None
-        if Locale is not None:
+        try:
+            locale = Locale.parse(code, sep='-')
+            language_name = locale.get_display_name('en')
+        except (ValueError, AttributeError):
             try:
-                try:
-                    locale = Locale.parse(code, sep='-')
-                except (ValueError, AttributeError):
-                    locale = Locale.parse(code, sep='_')
+                base_code = code.split('-')[0].split('_')[0]
+                locale = Locale.parse(base_code)
                 language_name = locale.get_display_name('en')
             except (ValueError, AttributeError):
-                try:
-                    base_code = code.split('-')[0].split('_')[0]
-                    locale = Locale.parse(base_code)
-                    language_name = locale.get_display_name('en')
-                except (ValueError, AttributeError):
-                    pass
-
-        if language_name is None:
-            language_name = code
+                pass
 
         languages.append((language_name, code))
 
     return languages
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description='Xcode project utilities'
     )
@@ -174,7 +162,7 @@ def main():
                     print(f"{language_name} ({language_code})")
             else:
                 print("No localization languages found in project", file=sys.stderr)
-        except (FileNotFoundError, IOError) as e:
+        except (OSError, FileNotFoundError) as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
     else:
